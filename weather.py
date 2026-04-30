@@ -13,7 +13,7 @@ load_dotenv()
 mcp = FastMCP("weather")
 
 # Constants
-SERPAPI_BASE = "https://serpapi.com/search.json"
+SERPAPI_BASE = "https://serpapi.com/search"
 SERPAPI_KEY  = os.getenv("SERPAPI_API_KEY", "")
 USER_AGENT   = "weather-app/1.0"
 
