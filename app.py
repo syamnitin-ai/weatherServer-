@@ -21,7 +21,7 @@ def _require_city(city: str) -> str:
     if not city or not city.strip():
         raise HTTPException(status_code=422, detail="The city parameter is required.")
     return city.strip()
-357f5d5ea420bfdfc4231e027ff9e8889288f32f67cad109a54a9a69422e7b3e
+
 
 @app.get("/", tags=["root"])
 async def root() -> dict[str, str]:
