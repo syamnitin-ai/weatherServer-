@@ -15,6 +15,7 @@ mcp = FastMCP("weather")
 # Constants
 SERPAPI_BASE = "https://serpapi.com/search"
 SERPAPI_KEY  = os.getenv("SERPAPI_API_KEY", "")
+RENDER_BASE = os.getenv("RENDER_BASE", "https://weatherserver-tn1e.onrender.com")
 USER_AGENT   = "weather-app/1.0"
 
 
@@ -39,6 +40,26 @@ async def fetch_serpapi(query: str) -> dict[str, Any] | None:
             return response.json()
         except Exception as e:
             print(f"SerpApi request failed: {e}", file=sys.stderr)
+            return None
+
+
+# ── Helper: call Render API ─────────────────────────────────────────
+async def fetch_render_api(endpoint: str, city: str) -> str | None:
+    """
+    Send a request to the Render-deployed weather API and return the result string.
+    """
+    url = f"{RENDER_BASE}{endpoint}"
+    params = {"city": city}
+    headers = {"User-Agent": USER_AGENT}
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, params=params, headers=headers, timeout=30.0)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("result")
+        except Exception as e:
+            print(f"Render API request failed: {e}", file=sys.stderr)
             return None
 
 
@@ -77,26 +98,28 @@ async def get_current_weather(city: str) -> str:
     """
     Get the current weather for any city in the world.
     Returns temperature, humidity, wind speed, precipitation,
-    and weather condition. Uses Google's live weather data via SerpApi.
+    and weather condition. Uses Google's live weather data via SerpApi or Render API.
 
     Args:
         city: The city name to get weather for, e.g. 'Delhi', 'Mumbai', 'London'
     """
-    data = await fetch_serpapi(f"weather in {city}")
+    if SERPAPI_KEY:
+        # Use SerpApi directly
+        data = await fetch_serpapi(f"weather in {city}")
 
-    if not data:
-        return f"Error: Could not connect to SerpApi. Check your API key and internet connection."
+        if not data:
+            return f"Error: Could not connect to SerpApi. Check your API key and internet connection."
 
-    answer = data.get("answer_box", {})
+        answer = data.get("answer_box", {})
 
-    # SerpApi puts current weather inside answer_box with type "weather_result"
-    if answer.get("type") != "weather_result":
-        return f"Could not find live weather for '{city}'. Try a more specific city name, e.g. 'Mumbai, India'."
+        # SerpApi puts current weather inside answer_box with type "weather_result"
+        if answer.get("type") != "weather_result":
+            return f"Could not find live weather for '{city}'. Try a more specific city name, e.g. 'Mumbai, India'."
 
-    unit = answer.get('unit', 'F')
-    temperature_c = _temperature_celsius(answer.get('temperature'), unit)
+        unit = answer.get('unit', 'F')
+        temperature_c = _temperature_celsius(answer.get('temperature'), unit)
 
-    result = f"""
+        result = f"""
 Current Weather — {answer.get('location', city)}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Condition     : {answer.get('weather', 'N/A')}
@@ -107,7 +130,11 @@ Precipitation : {answer.get('precipitation', 'N/A')}
 As of         : {answer.get('date', 'N/A')}
 """.strip()
 
-    return result
+        return result
+    else:
+        # Use Render API
+        result = await fetch_render_api("/weather/current", city)
+        return result or f"Error: Could not fetch weather data for '{city}'."
 
 
 # ── Tool 2: Multi-day forecast ───────────────────────────────────
@@ -121,38 +148,44 @@ async def get_weather_forecast(city: str) -> str:
     Args:
         city: The city name to get the forecast for, e.g. 'Delhi', 'Mumbai', 'London'
     """
-    data = await fetch_serpapi(f"weather in {city}")
+    if SERPAPI_KEY:
+        # Use SerpApi directly
+        data = await fetch_serpapi(f"weather in {city}")
 
-    if not data:
-        return "Error: Could not connect to SerpApi. Check your API key."
+        if not data:
+            return "Error: Could not connect to SerpApi. Check your API key."
 
-    answer = data.get("answer_box", {})
+        answer = data.get("answer_box", {})
 
-    if answer.get("type") != "weather_result":
-        return f"Could not find forecast for '{city}'. Try a more specific name."
+        if answer.get("type") != "weather_result":
+            return f"Could not find forecast for '{city}'. Try a more specific name."
 
-    forecast = answer.get("forecast", [])
-    if not forecast:
-        return f"No forecast data found for '{city}'."
+        forecast = answer.get("forecast", [])
+        if not forecast:
+            return f"No forecast data found for '{city}'."
 
-    unit = answer.get("unit", "F")
-    location = answer.get("location", city)
+        unit = answer.get("unit", "F")
+        location = answer.get("location", city)
 
-    lines = []
-    for day in forecast:
-        temp = day.get("temperature", {})
-        high_c = _temperature_celsius(temp.get("high"), unit)
-        low_c = _temperature_celsius(temp.get("low"), unit)
-        lines.append(
-            f"{day.get('day', '?'):12} | "
-            f"{day.get('weather', 'N/A'):20} | "
-            f"High: {high_c}°C  Low: {low_c}°C | "
-            f"Humidity: {day.get('humidity', 'N/A')} | "
-            f"Rain: {day.get('precipitation', 'N/A')}"
-        )
+        lines = []
+        for day in forecast:
+            temp = day.get("temperature", {})
+            high_c = _temperature_celsius(temp.get("high"), unit)
+            low_c = _temperature_celsius(temp.get("low"), unit)
+            lines.append(
+                f"{day.get('day', '?'):12} | "
+                f"{day.get('weather', 'N/A'):20} | "
+                f"High: {high_c}°C  Low: {low_c}°C | "
+                f"Humidity: {day.get('humidity', 'N/A')} | "
+                f"Rain: {day.get('precipitation', 'N/A')}"
+            )
 
-    header = f"Forecast for {location}\n{'━' * 90}"
-    return header + "\n" + "\n".join(lines)
+        header = f"Forecast for {location}\n{'━' * 90}"
+        return header + "\n" + "\n".join(lines)
+    else:
+        # Use Render API
+        result = await fetch_render_api("/weather/forecast", city)
+        return result or f"Error: Could not fetch forecast data for '{city}'."
 
 
 # ── Tool 3: Travel planning ──────────────────────────────────────
@@ -166,41 +199,43 @@ async def get_travel_plan(city: str) -> str:
     Args:
         city: The city or destination to plan for, e.g. 'Delhi', 'Mumbai', 'London'
     """
-    data = await fetch_serpapi(f"best places to visit in {city}")
-    if not data:
-        return "Error: Could not connect to SerpApi. Check your API key and internet connection."
+    if SERPAPI_KEY:
+        # Use SerpApi directly
+        data = await fetch_serpapi(f"best places to visit in {city}")
+        if not data:
+            return "Error: Could not connect to SerpApi. Check your API key and internet connection."
 
-    answer = data.get("answer_box", {})
-    location = answer.get("title") or city
-    description = answer.get("description") or answer.get("snippet") or answer.get("answer") or ""
+        answer = data.get("answer_box", {})
+        location = answer.get("title") or city
+        description = answer.get("description") or answer.get("snippet") or answer.get("answer") or ""
 
-    places = []
-    local_results = data.get("local_results", []) or []
-    for item in local_results[:5]:
-        name = item.get("title") or item.get("name")
-        if name:
-            places.append(name)
+        places = []
+        local_results = data.get("local_results", []) or []
+        for item in local_results[:5]:
+            name = item.get("title") or item.get("name")
+            if name:
+                places.append(name)
 
-    if not places:
-        for result in data.get("organic_results", [])[:5]:
-            title = result.get("title")
-            if title:
-                cleaned = re.sub(r"\s+\|.*", "", title)
-                places.append(cleaned)
+        if not places:
+            for result in data.get("organic_results", [])[:5]:
+                title = result.get("title")
+                if title:
+                    cleaned = re.sub(r"\s+\|.*", "", title)
+                    places.append(cleaned)
 
-    if not places and description:
-        places = [part.strip() for part in re.split(r"[;,\n]", description) if len(part.strip()) > 10][:5]
+        if not places and description:
+            places = [part.strip() for part in re.split(r"[;,\n]", description) if len(part.strip()) > 10][:5]
 
-    if not places:
-        places = [f"Popular sightseeing spots in {city}", "Local market or food street", "Museum or cultural center", "City park or viewpoint"]
+        if not places:
+            places = [f"Popular sightseeing spots in {city}", "Local market or food street", "Museum or cultural center", "City park or viewpoint"]
 
-    morning = places[0] if len(places) > 0 else "Main sight"
-    late_morning = places[1] if len(places) > 1 else "Nearby cultural site"
-    afternoon = places[2] if len(places) > 2 else "Lunch and museum"
-    evening = places[3] if len(places) > 3 else "City market or waterfront"
-    night = places[4] if len(places) > 4 else "Dinner and local evening activity"
+        morning = places[0] if len(places) > 0 else "Main sight"
+        late_morning = places[1] if len(places) > 1 else "Nearby cultural site"
+        afternoon = places[2] if len(places) > 2 else "Lunch and museum"
+        evening = places[3] if len(places) > 3 else "City market or waterfront"
+        night = places[4] if len(places) > 4 else "Dinner and local evening activity"
 
-    return f"""
+        return f"""
 Travel Plan — {location}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Recommended places:
@@ -221,6 +256,10 @@ Notes:
 - Adjust based on local opening hours and weather.
 - If you want more details, ask for specific attractions, dining, or transit tips in {city}.
 """.strip()
+    else:
+        # Use Render API
+        result = await fetch_render_api("/weather/travel", city)
+        return result or f"Error: Could not fetch travel plan for '{city}'."
 
 
 # ── Tool 4: Air Quality Index ────────────────────────────────────────────────────────────
@@ -234,36 +273,38 @@ async def get_aqi(city: str) -> str:
     Args:
         city: The city name to get AQI for, e.g. 'Delhi', 'Mumbai', 'London'
     """
-    data = await fetch_serpapi(f"air quality index {city}")
-    
-    if not data:
-        return "Error: Could not connect to SerpApi. Check your API key and internet connection."
+    if SERPAPI_KEY:
+        # Use SerpApi directly
+        data = await fetch_serpapi(f"air quality index {city}")
+        
+        if not data:
+            return "Error: Could not connect to SerpApi. Check your API key and internet connection."
 
-    answer = data.get("answer_box", {})
-    
-    if not answer:
-        answer = {}
-        local = data.get("local_results", [])
-        if local:
-            answer = local[0]
-    
-    aqi_value = answer.get("value") or answer.get("aqi") or "N/A"
-    status = answer.get("status") or "Unknown"
-    pm25 = answer.get("pm25") or answer.get("PM2.5") or "N/A"
-    pm10 = answer.get("pm10") or answer.get("PM10") or "N/A"
-    
-    recommendation = "Good - Suitable for all outdoor activities"
-    if isinstance(status, str):
-        if "poor" in status.lower():
-            recommendation = "Poor - Avoid outdoor activities, use N95 masks"
-        elif "unhealthy" in status.lower():
-            recommendation = "Unhealthy - Stay indoors, especially vulnerable groups"
-        elif "moderate" in status.lower():
-            recommendation = "Moderate - Sensitive groups should limit outdoor activity"
-        elif "good" in status.lower():
-            recommendation = "Good - Suitable for all outdoor activities"
-    
-    return f"""
+        answer = data.get("answer_box", {})
+        
+        if not answer:
+            answer = {}
+            local = data.get("local_results", [])
+            if local:
+                answer = local[0]
+        
+        aqi_value = answer.get("value") or answer.get("aqi") or "N/A"
+        status = answer.get("status") or "Unknown"
+        pm25 = answer.get("pm25") or answer.get("PM2.5") or "N/A"
+        pm10 = answer.get("pm10") or answer.get("PM10") or "N/A"
+        
+        recommendation = "Good - Suitable for all outdoor activities"
+        if isinstance(status, str):
+            if "poor" in status.lower():
+                recommendation = "Poor - Avoid outdoor activities, use N95 masks"
+            elif "unhealthy" in status.lower():
+                recommendation = "Unhealthy - Stay indoors, especially vulnerable groups"
+            elif "moderate" in status.lower():
+                recommendation = "Moderate - Sensitive groups should limit outdoor activity"
+            elif "good" in status.lower():
+                recommendation = "Good - Suitable for all outdoor activities"
+        
+        return f"""
 Air Quality Index — {city}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 AQI Value     : {aqi_value}
@@ -278,6 +319,10 @@ Health Tips:
 - Wear N95 masks for outdoor activities if AQI > 150
 - Check real-time updates before planning outdoor travel
 """.strip()
+    else:
+        # Use Render API
+        result = await fetch_render_api("/weather/aqi", city)
+        return result or f"Error: Could not fetch AQI data for '{city}'."
 
 
 # ── Tool 5: Sunrise & Sunset Times ───────────────────────────────────────────────────────
@@ -291,30 +336,32 @@ async def get_sunrise_sunset(city: str) -> str:
     Args:
         city: The city name, e.g. 'Delhi', 'Mumbai', 'London'
     """
-    data = await fetch_serpapi(f"sunrise sunset time {city}")
-    
-    if not data:
-        return "Error: Could not connect to SerpApi."
+    if SERPAPI_KEY:
+        # Use SerpApi directly
+        data = await fetch_serpapi(f"sunrise sunset time {city}")
+        
+        if not data:
+            return "Error: Could not connect to SerpApi."
 
-    answer = data.get("answer_box", {})
-    
-    sunrise = answer.get("sunrise") or "N/A"
-    sunset = answer.get("sunset") or "N/A"
-    day_length = answer.get("day_length") or "N/A"
-    
-    if sunrise == "N/A":
-        organic = data.get("organic_results", [])
-        if organic:
-            snippet = organic[0].get("snippet", "")
-            if "sunrise" in snippet.lower():
-                lines = snippet.split("\n")
-                for line in lines:
-                    if "sunrise" in line.lower():
-                        sunrise = line
-                    if "sunset" in line.lower():
-                        sunset = line
-    
-    return f"""
+        answer = data.get("answer_box", {})
+        
+        sunrise = answer.get("sunrise") or "N/A"
+        sunset = answer.get("sunset") or "N/A"
+        day_length = answer.get("day_length") or "N/A"
+        
+        if sunrise == "N/A":
+            organic = data.get("organic_results", [])
+            if organic:
+                snippet = organic[0].get("snippet", "")
+                if "sunrise" in snippet.lower():
+                    lines = snippet.split("\n")
+                    for line in lines:
+                        if "sunrise" in line.lower():
+                            sunrise = line
+                        if "sunset" in line.lower():
+                            sunset = line
+        
+        return f"""
 Sunrise & Sunset — {city}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Sunrise       : {sunrise}
@@ -327,6 +374,10 @@ Photography Tips:
 - Plan outdoor activities during daylight hours
 - Evening walks recommended 30-45 minutes before sunset
 """.strip()
+    else:
+        # Use Render API
+        result = await fetch_render_api("/weather/sunrise-sunset", city)
+        return result or f"Error: Could not fetch sunrise/sunset data for '{city}'."
 
 
 # ── Tool 6: Best Spots for Sunrise/Sunset ────────────────────────────────────────────────
@@ -340,41 +391,43 @@ async def get_photo_spots(city: str) -> str:
     Args:
         city: The city name, e.g. 'Delhi', 'Mumbai', 'London'
     """
-    data = await fetch_serpapi(f"best sunrise sunset spots {city} photography viewpoint")
-    
-    if not data:
-        return "Error: Could not connect to SerpApi."
+    if SERPAPI_KEY:
+        # Use SerpApi directly
+        data = await fetch_serpapi(f"best sunrise sunset spots {city} photography viewpoint")
+        
+        if not data:
+            return "Error: Could not connect to SerpApi."
 
-    answer = data.get("answer_box", {})
-    spots = []
-    
-    local_results = data.get("local_results", []) or []
-    for item in local_results[:6]:
-        name = item.get("title") or item.get("name")
-        if name:
-            spots.append(name)
-    
-    if not spots:
-        organic = data.get("organic_results", [])
-        for result in organic[:6]:
-            title = result.get("title")
-            if title:
-                cleaned = re.sub(r"\s+\|.*", "", title)
-                spots.append(cleaned)
-    
-    if not spots:
-        spots = [
-            f"Main hilltop or elevated viewpoint in {city}",
-            f"Waterfront promenade or riverside in {city}",
-            f"City rooftop bar or terrace cafe",
-            f"Historical monument with open view",
-            f"Local park or garden with scenic outlook",
-            f"Beach or lake area if available"
-        ]
-    
-    spot_list = "\n".join([f"{i+1}. {spot}" for i, spot in enumerate(spots[:6])])
-    
-    return f"""
+        answer = data.get("answer_box", {})
+        spots = []
+        
+        local_results = data.get("local_results", []) or []
+        for item in local_results[:6]:
+            name = item.get("title") or item.get("name")
+            if name:
+                spots.append(name)
+        
+        if not spots:
+            organic = data.get("organic_results", [])
+            for result in organic[:6]:
+                title = result.get("title")
+                if title:
+                    cleaned = re.sub(r"\s+\|.*", "", title)
+                    spots.append(cleaned)
+        
+        if not spots:
+            spots = [
+                f"Main hilltop or elevated viewpoint in {city}",
+                f"Waterfront promenade or riverside in {city}",
+                f"City rooftop bar or terrace cafe",
+                f"Historical monument with open view",
+                f"Local park or garden with scenic outlook",
+                f"Beach or lake area if available"
+            ]
+        
+        spot_list = "\n".join([f"{i+1}. {spot}" for i, spot in enumerate(spots[:6])])
+        
+        return f"""
 Best Photo Spots — {city}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Recommended locations for sunrise/sunset:
@@ -388,6 +441,10 @@ Photography Guide:
 - Golden hour produces warm, flattering light
 - Arrive 30 minutes early to secure good spots
 """.strip()
+    else:
+        # Use Render API
+        result = await fetch_render_api("/weather/photo-spots", city)
+        return result or f"Error: Could not fetch photo spots for '{city}'."
 
 
 # ── Tool 7: Local Events ─────────────────────────────────────────────────────────────────
@@ -401,47 +458,49 @@ async def get_local_events(city: str) -> str:
     Args:
         city: The city name, e.g. 'Delhi', 'Mumbai', 'London'
     """
-    data = await fetch_serpapi(f"events happening in {city} festivals 2026")
-    
-    if not data:
-        return "Error: Could not connect to SerpApi."
+    if SERPAPI_KEY:
+        # Use SerpApi directly
+        data = await fetch_serpapi(f"events happening in {city} festivals 2026")
+        
+        if not data:
+            return "Error: Could not connect to SerpApi."
 
-    events = []
-    
-    answer = data.get("answer_box", {})
-    if answer.get("events"):
-        for event in answer.get("events", [])[:5]:
-            event_name = event.get("name") or event.get("title")
-            if event_name:
-                events.append(event_name)
-    
-    if not events:
-        local_results = data.get("local_results", []) or []
-        for item in local_results[:5]:
-            name = item.get("title") or item.get("name")
-            if name and ("festival" in name.lower() or "event" in name.lower() or "concert" in name.lower()):
-                events.append(name)
-    
-    if not events:
-        organic = data.get("organic_results", [])
-        for result in organic[:5]:
-            title = result.get("title")
-            if title:
-                cleaned = re.sub(r"\s+\|.*", "", title)
-                events.append(cleaned)
-    
-    if not events:
-        events = [
-            f"Check local tourism board for {city} events",
-            "Seasonal festivals and cultural celebrations",
-            "Concert series and musical events",
-            "Food festivals and culinary events",
-            "Sports events and marathons"
-        ]
-    
-    event_list = "\n".join([f"{i+1}. {event}" for i, event in enumerate(events[:5])])
-    
-    return f"""
+        events = []
+        
+        answer = data.get("answer_box", {})
+        if answer.get("events"):
+            for event in answer.get("events", [])[:5]:
+                event_name = event.get("name") or event.get("title")
+                if event_name:
+                    events.append(event_name)
+        
+        if not events:
+            local_results = data.get("local_results", []) or []
+            for item in local_results[:5]:
+                name = item.get("title") or item.get("name")
+                if name and ("festival" in name.lower() or "event" in name.lower() or "concert" in name.lower()):
+                    events.append(name)
+        
+        if not events:
+            organic = data.get("organic_results", [])
+            for result in organic[:5]:
+                title = result.get("title")
+                if title:
+                    cleaned = re.sub(r"\s+\|.*", "", title)
+                    events.append(cleaned)
+        
+        if not events:
+            events = [
+                f"Check local tourism board for {city} events",
+                "Seasonal festivals and cultural celebrations",
+                "Concert series and musical events",
+                "Food festivals and culinary events",
+                "Sports events and marathons"
+            ]
+        
+        event_list = "\n".join([f"{i+1}. {event}" for i, event in enumerate(events[:5])])
+        
+        return f"""
 Local Events & Festivals — {city}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Upcoming events:
@@ -457,6 +516,10 @@ Tips:
 
 For more details, visit the city's tourism board or event-specific websites.
 """.strip()
+    else:
+        # Use Render API
+        result = await fetch_render_api("/weather/events", city)
+        return result or f"Error: Could not fetch local events for '{city}'."
 
 
 # ── Run the server ───────────────────────────────────────────────
