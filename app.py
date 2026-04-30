@@ -12,12 +12,16 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# Mount the MCP SSE transport so Claude Desktop remote connector can reach the tools.
+# Connector URL: https://weatherserver-2.onrender.com/mcp/sse
+app.mount("/mcp", weather_module.mcp.sse_app())
+
 
 def _require_city(city: str) -> str:
     if not city or not city.strip():
         raise HTTPException(status_code=422, detail="The city parameter is required.")
     return city.strip()
-
+357f5d5ea420bfdfc4231e027ff9e8889288f32f67cad109a54a9a69422e7b3e
 
 @app.get("/", tags=["root"])
 async def root() -> dict[str, str]:
