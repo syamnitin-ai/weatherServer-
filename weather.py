@@ -10,8 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Initialize FastMCP server — the name shows up in Claude Desktop
-mcp = FastMCP("weather")
-
+mcp = FastMCP("weather", json_response=True, stateless_http=True)
 # Constants
 SERPAPI_BASE = "https://serpapi.com/search"
 SERPAPI_KEY  = os.getenv("SERPAPI_API_KEY", "")
@@ -528,4 +527,15 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 10000))
     print(f"Weather MCP Server starting on port {port}...", file=sys.stderr)
     app = mcp.streamable_http_app()
-    uvicorn.run(app, host="0.0.0.0", port=port, forwarded_allow_ips="*", proxy_headers=True)
+    config = uvicorn.Config(
+        app,
+        host="0.0.0.0",
+        port=port,
+        forwarded_allow_ips="*",
+        proxy_headers=True,
+        server_header=False,
+        headers=[("Access-Control-Allow-Origin", "*")]
+    )
+    server = uvicorn.Server(config)
+    import asyncio
+    asyncio.run(server.serve())
