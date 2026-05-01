@@ -11,6 +11,20 @@ load_dotenv()
 
 # Initialize FastMCP server — the name shows up in Claude Desktop
 mcp = FastMCP("weather", json_response=True, stateless_http=True)
+from starlette.applications import Starlette
+from starlette.routing import Route, Mount
+from starlette.responses import JSONResponse
+
+async def health(request):
+    return JSONResponse({"status": "ok"})
+
+mcp_app = mcp.streamable_http_app()
+
+app = Starlette(routes=[
+    Route("/", health),
+    Route("/health", health),
+    Mount("/mcp", mcp_app),
+])
 # Constants
 SERPAPI_BASE = "https://serpapi.com/search"
 SERPAPI_KEY  = os.getenv("SERPAPI_API_KEY", "")
@@ -520,19 +534,9 @@ For more details, visit the city's tourism board or event-specific websites.
         result = await fetch_render_api("/weather/events", city)
         return result or f"Error: Could not fetch local events for '{city}'."
 
-app = mcp.streamable_http_app()
 # ── Run the server ───────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 10000))
     print(f"Weather MCP Server starting on port {port}...", file=sys.stderr)
-    app = mcp.streamable_http_app()
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=port,
-        forwarded_allow_ips="*",
-        proxy_headers=True,
-        ws_ping_interval=None,
-        h11_max_incomplete_event_size=16384,
-    )
+    uvicorn.run(app, host="0.0.0.0", port=port)
