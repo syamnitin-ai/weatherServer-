@@ -524,6 +524,8 @@ For more details, visit the city's tourism board or event-specific websites.
 
 # ── Run the server ───────────────────────────────────────────────
 if __name__ == "__main__":
+    import uvicorn
     port = int(os.getenv("PORT", 10000))
     print(f"Weather MCP Server starting on port {port}...", file=sys.stderr)
-    mcp.run(transport="streamable-http", port=port)
+    app = mcp.streamable_http_app()
+    uvicorn.run(app, host="0.0.0.0", port=port)
