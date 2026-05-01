@@ -524,8 +524,8 @@ For more details, visit the city's tourism board or event-specific websites.
 
 # ── Run the server ───────────────────────────────────────────────
 if __name__ == "__main__":
-    # IMPORTANT: Never use print() here — it writes to stdout and
-    # corrupts the JSON-RPC messages Claude sends over stdio.
-    # Always use sys.stderr for any debug logging.
-    print("Weather MCP Server starting...", file=sys.stderr)
-    mcp.run(transport="stdio")
+    # Use streamable-http transport for remote deployment on Render.
+    # Render injects the PORT environment variable automatically.
+    port = int(os.getenv("PORT", 8000))
+    print(f"Weather MCP Server starting on port {port}...", file=sys.stderr)
+    mcp.run(transport="streamable-http", host="0.0.0.0", port=port)
