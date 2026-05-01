@@ -524,6 +524,6 @@ For more details, visit the city's tourism board or event-specific websites.
 
 # ── Run the server ───────────────────────────────────────────────
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))
+    port = int(os.getenv("PORT", 10000))
     print(f"Weather MCP Server starting on port {port}...", file=sys.stderr)
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=port)
+    mcp.run(transport="streamable-http", port=port)
