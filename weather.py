@@ -520,22 +520,19 @@ For more details, visit the city's tourism board or event-specific websites.
         result = await fetch_render_api("/weather/events", city)
         return result or f"Error: Could not fetch local events for '{city}'."
 
-
+app = mcp.streamable_http_app()
 # ── Run the server ───────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 10000))
     print(f"Weather MCP Server starting on port {port}...", file=sys.stderr)
     app = mcp.streamable_http_app()
-    config = uvicorn.Config(
+    uvicorn.run(
         app,
         host="0.0.0.0",
         port=port,
         forwarded_allow_ips="*",
         proxy_headers=True,
-        server_header=False,
-        headers=[("Access-Control-Allow-Origin", "*")]
+        ws_ping_interval=None,
+        h11_max_incomplete_event_size=16384,
     )
-    server = uvicorn.Server(config)
-    import asyncio
-    asyncio.run(server.serve())
